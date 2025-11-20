@@ -247,7 +247,7 @@ func install(pkgName string, force bool, path string) error {
 	}
 
 	// TODO implement actual installation logic here
-	fmt.Printf("Installation logic is not yet implemented.\n", pkgName)	
+	fmt.Printf("Installation logic is not yet implemented.\n")	
 
 	return nil // Return nil to indicate success
 }
