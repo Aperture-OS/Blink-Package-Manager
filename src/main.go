@@ -6,27 +6,27 @@
   Copyright (C) 2025-2026 Aperture OS
 
   This program is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
+  it under the terms of the Apache 2.0 License as published by
+  the Apache Software Foundation, either version 2.0 of the License, or
+  any later version.
 
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
   You should have received a copy of the GNU General Public License
-  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+  along with this program.  If not, see <https://www.apache.org/licenses/LICENSE-2.0>.
 */
 
 package main // main package, entry point
 
 import (
-	"context"		
-	"fmt"           
-	"os"            
+	"context"
+	"fmt"
+	"os"
 	"path/filepath"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/fang" // For fancy terminal output
 	"github.com/spf13/cobra"
 
@@ -42,6 +42,64 @@ import (
 // also includes support and version commands
 // uses modular functions for package operations to enhance readability and maintainability
 /****************************************************/
+
+func colorScheme(ld lipgloss.LightDarkFunc) fang.ColorScheme {
+    return fang.ColorScheme{
+        Base: ld(
+            lipgloss.Color("#45455e"),
+            lipgloss.Color("#d4d8e0"),
+        ),
+
+        Title: lipgloss.Color("#d4d8e0"),
+
+        Description: ld(
+            lipgloss.Color("#6d7592"),
+            lipgloss.Color("#9299af"),
+        ),
+
+        Codeblock: ld(
+            lipgloss.Color("#383649"),
+            lipgloss.Color("#45455e"),
+        ),
+
+        Program: lipgloss.Color("#6d7592"),
+
+        DimmedArgument: ld(
+            lipgloss.Color("#9299af"),
+            lipgloss.Color("#afb4c4"),
+        ),
+
+        Comment: ld(
+            lipgloss.Color("#6d7592"),
+            lipgloss.Color("#6d7592"),
+        ),
+
+        Flag: lipgloss.Color("#9299af"),
+        FlagDefault: lipgloss.Color("#afb4c4"),
+
+        Command: lipgloss.Color("#6d7592"),
+
+        QuotedString: lipgloss.Color("#9299af"),
+
+        Argument: ld(
+            lipgloss.Color("#9299af"),
+            lipgloss.Color("#afb4c4"),
+        ),
+
+        Help: ld(
+            lipgloss.Color("#9299af"),
+            lipgloss.Color("#afb4c4"),
+        ),
+
+        Dash: ld(
+            lipgloss.Color("#d4d8e0"),
+            lipgloss.Color("#d4d8e0"),
+        ),
+
+        ErrorDetails: lipgloss.Color("#f38ba8"),
+    }
+}
+
 
 // these comments on the main func should prob be added but theyre so boring so imma skip them
 // if anyone wanna add them feel free ;)
@@ -71,7 +129,7 @@ func main() {
 	}
 
 	/****************************************************/
-	//  blink get <pkg>		
+	//  blink get <pkg>
 	/****************************************************/
 	getCmd := &cobra.Command{
 		Use:     "get <pkg>",
@@ -96,7 +154,7 @@ func main() {
 	}
 
 	/****************************************************/
-	//  blink search <pkg>	
+	//  blink search <pkg>
 	/****************************************************/
 	infoCmd := &cobra.Command{
 		Use:     "search <pkg>",
@@ -287,7 +345,7 @@ func main() {
 	/****************************************************/
 	// Add flags to commands
 	/****************************************************/
-	
+
 	getCmd.Flags().BoolVarP(&force, "force", "f", false, "Force re-download")
 	getCmd.Flags().StringVarP(&path, "path", "p", defaultCachePath, "Specify recipes directory")
 	infoCmd.Flags().BoolVarP(&force, "force", "f", false, "Force re-download")
@@ -306,7 +364,7 @@ func main() {
 	fmt.Printf("© Copyright 2025-%d Aperture OS. All rights reserved.\n", currentYear)
 
 	// Execute root command
-	if err := fang.Execute(context.Background(), rootCmd, fang.WithoutVersion()); err != nil {
+	if err := fang.Execute(context.Background(), rootCmd, fang.WithoutVersion(), fang.WithColorSchemeFunc(colorScheme)); err != nil {
 		eyes.Fatalf("Command Line Interface failed to run. (Is there any syntax error(s)?)\nERR: %v ", err)
 	}
 }

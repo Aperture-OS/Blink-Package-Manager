@@ -10,7 +10,7 @@ Blink is a source-based package manager designed for performance and control. It
 </p>
 
 > [!IMPORTANT]\
-> This version of Blink is a beta version, although it is usable, there may be some bugs.
+> This version of Blink is a beta version (v0.1.0-beta), although it is usable, there may be some bugs.
 
 ## Features
 
@@ -27,7 +27,7 @@ Please follow the instructions in [CONTRIBUTING.md](https://github.com/Aperture-
 
 ### License
 
-Blink is released under GPL 3.0, see more at [LICENSE](https://github.com/Aperture-OS/blink-package-manager/blob/main/LICENSE)
+Blink is released under Apache 2.0, see more at [LICENSE](https://github.com/Aperture-OS/blink-package-manager/blob/main/LICENSE)
 
 **&copy; Copyright Aperture OS 2025-2026**
 **Must Include the Copyright notice in any fork!**

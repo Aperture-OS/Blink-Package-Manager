@@ -1,23 +1,20 @@
-
-# Blink, a powerful source-based package manager. Core of ApertureOS.
-# Want to use it for your own project?
+#  Blink, a powerful source-based package manager. Core of ApertureOS.
+#	Want to use it for your own project?
 #	Blink is completely FOSS (Free and Open Source),
 #	edit, publish, use, contribute to Blink however you prefer.
 #  Copyright (C) 2025-2026 Aperture OS
 
 #  This program is free software: you can redistribute it and/or modify
-#	 it under the terms of the GNU General Public License as published by
-#  the Free Software Foundation, either version 3 of the License, or
-#  (at your option) any later version.
+#  it under the terms of the Apache 2.0 License as published by
+#  the Apache Software Foundation, either version 2.0 of the License, or
+#  any later version.
 
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 #  You should have received a copy of the GNU General Public License
-#  along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
+#  along with this program.  If not, see <https://www.apache.org/licenses/LICENSE-2.0>.
 
 APP := main
 SRC := ./src
