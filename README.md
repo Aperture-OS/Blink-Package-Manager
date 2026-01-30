@@ -10,7 +10,7 @@ Blink is a source-based package manager designed for performance and control. It
 </p>
 
 > [!IMPORTANT]\
-> This version of Blink is a beta version (v0.2.0-alpha), although it is usable, there may be some bugs.
+> This version of Blink is an alpha version (v0.2.0-alpha), although it is usable, there may be some bugs. ApertureOS is **NOT** responsible for any damage to your device.
 
 ## Features
 
