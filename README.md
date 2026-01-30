@@ -10,7 +10,7 @@ Blink is a source-based package manager designed for performance and control. It
 </p>
 
 > [!IMPORTANT]\
-> This version of Blink is a beta version (v0.2.0-beta), although it is usable, there may be some bugs.
+> This version of Blink is a beta version (v0.2.0-alpha), although it is usable, there may be some bugs.
 
 ## Features
 
