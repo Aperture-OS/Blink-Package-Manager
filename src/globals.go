@@ -114,7 +114,7 @@ func ApplyRoot(osRoot string) error {
 var (
 	DistroName = "ApertureOS"
 
-	BaseDataDirPath     = "/home/elia/Desktop/ApertureOS/blink/var-blink" // Default: /var/blink/
+	BaseDataDirPath     = "/var/blink" // Default: /var/blink
 	CurrentYear         = time.Now().Year()                               // Current year for copyright
 	CurrentBlinkVersion = "v0.2.0-alpha"                                  // Blink version
 
@@ -124,7 +124,7 @@ git_url = "https://github.com/Aperture-OS/testing-blink-repo.git"
 branch = "main"
 `
 
-	DefaultRoot = "/home/elia/Desktop/ApertureOS/blink/root/" // Default root directory
+	DefaultRoot = "/" // Default root directory
 
 	ConfigFilePath         = filepath.Join(BaseDataDirPath, "etc", "config.toml")
 	LockFilePath           = filepath.Join(BaseDataDirPath, "etc", "blink.lock") // Path to lock file

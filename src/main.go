@@ -112,7 +112,7 @@ func main() {
 	// Flags for CLI commands
 	var force bool  // Force re-download or reinstall
 	var path string // Custom cache path
-	var root = "/home/elia/Desktop/ApertureOS/blink/var-blink"
+	var root = DefaultRoot
 
 	//  Root command
 	rootCmd := &cobra.Command{
