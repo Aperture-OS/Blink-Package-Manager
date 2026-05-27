@@ -38,7 +38,7 @@
           inputsFrom = [ blink ];
 
           buildInputs = with pkgs; [
-            go_1_23
+            go
             gopls
             gotools
             delve
