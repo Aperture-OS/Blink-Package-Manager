@@ -40,13 +40,7 @@ func buildDepGraph(
 	pkgName string,
 	path string,
 	visited map[string]bool,
-	depth int,
 ) error {
-	// Prevent infinite recursion
-	if depth > MaxDependencyDepth {
-		return SafeError(fmt.Errorf("dependency depth exceeded (possible cycle): %s", pkgName), "circular dependency detected")
-	}
-	
 	if visited[pkgName] {
 		return nil
 	}
@@ -54,19 +48,14 @@ func buildDepGraph(
 
 	pkg, err := fetchpkg(path, false, pkgName, true)
 	if err != nil {
-		return SafeError(err, fmt.Sprintf("failed to fetch package %s", pkgName))
+		return fmt.Errorf("failed to fetch package %s: %v", pkgName, err)
 	}
 
 	for dep := range pkg.Dependencies {
-		// Validate dependency name
-		if err := ValidatePackageName(dep); err != nil {
-			return SafeError(err, fmt.Sprintf("invalid dependency name for %s", pkgName))
-		}
-		
 		// pkgName depends on dep
 		graph.AddEdge(pkgName, dep)
 
-		if err := buildDepGraph(graph, dep, path, visited, depth+1); err != nil {
+		if err := buildDepGraph(graph, dep, path, visited); err != nil {
 			return err
 		}
 	}
@@ -76,21 +65,16 @@ func buildDepGraph(
 
 // Handle mandatory dependencies (DFS + topo)
 func handleMandatoryDeps(pkgName, path string) error {
-	// Validate main package name
-	if err := ValidatePackageName(pkgName); err != nil {
-		return SafeError(err, "invalid package name")
-	}
-	
 	graph := togosort.NewGraph()
 	visited := make(map[string]bool)
 
-	if err := buildDepGraph(graph, pkgName, path, visited, 0); err != nil {
+	if err := buildDepGraph(graph, pkgName, path, visited); err != nil {
 		return err
 	}
 
 	// cycle detection
 	if err := graph.DFS([]string{pkgName}); err != nil {
-		return SafeError(err, "dependency cycle detected")
+		return fmt.Errorf("dependency cycle detected: %v", err)
 	}
 
 	order := graph.TopoSort()
@@ -136,7 +120,7 @@ our Discord server. Run 'blink support' for more informations.`)
 		}
 		eyes.Infof("Installing dependency %s", dep)
 		if err := install(dep, false, path); err != nil {
-			return SafeError(err, fmt.Sprintf("failed to install dependency %s", dep))
+			return fmt.Errorf("failed to install dependency %s: %v", dep, err)
 		}
 	}
 
@@ -145,14 +129,9 @@ our Discord server. Run 'blink support' for more informations.`)
 
 // Handle optional dependencies (DFS + topo per choice)
 func handleOptionalDeps(pkgName string, path string) error {
-	// Validate package name
-	if err := ValidatePackageName(pkgName); err != nil {
-		return SafeError(err, "invalid package name")
-	}
-	
 	pkg, err := fetchpkg(path, false, pkgName, true)
 	if err != nil {
-		return SafeError(err, fmt.Sprintf("failed to fetch package %s", pkgName))
+		return fmt.Errorf("failed to fetch package %s: %v", pkgName, err)
 	}
 
 	for _, group := range pkg.OptDeps {
@@ -160,11 +139,6 @@ func handleOptionalDeps(pkgName string, path string) error {
 		var notInstalled []string
 
 		for _, opt := range group.Options {
-			// Validate optional dependency name
-			if err := ValidatePackageName(opt); err != nil {
-				eyes.Warnf("Invalid optional dependency name '%s' in group %d: %v", opt, group.ID, err)
-				continue
-			}
 			if isInstalled(opt) {
 				installed = append(installed, opt)
 			} else {
@@ -213,12 +187,12 @@ func handleOptionalDeps(pkgName string, path string) error {
 		graph := togosort.NewGraph()
 		visited := make(map[string]bool)
 
-		if err := buildDepGraph(graph, selected, path, visited, 0); err != nil {
+		if err := buildDepGraph(graph, selected, path, visited); err != nil {
 			return err
 		}
 
 		if err := graph.DFS([]string{selected}); err != nil {
-			return SafeError(err, "dependency cycle detected")
+			return fmt.Errorf("dependency cycle detected: %v", err)
 		}
 
 		order := graph.TopoSort()
@@ -229,7 +203,7 @@ func handleOptionalDeps(pkgName string, path string) error {
 			}
 			eyes.Infof("Installing optional dependency %s", dep)
 			if err := install(dep, false, path); err != nil {
-				return SafeError(err, fmt.Sprintf("failed to install optional dependency %s", dep))
+				return fmt.Errorf("failed to install optional dependency %s: %v", dep, err)
 			}
 		}
 	}

@@ -104,31 +104,19 @@ func ApplyRoot(osRoot string) error {
 }
 
 //===================================================================//
-//				     Globals
+//							     Globals
 //===================================================================//
 
 // !!! NEVER USE RELATIVE PATHS FOR GLOBALS !!!
 // ALWAYS USE ABSOLUTE PATHS TO AVOID ISSUES
 // EVEN WHEN TESTING LOCALLY, ALWAYS ABSOLUTE PATHS!
 
-// Default paths - use system-standard locations
-const (
-	// Standard Linux directory structure
-	DefaultBaseDataDir = "/var/lib/blink"  // For persistent data
-	DefaultConfigDir   = "/etc/blink"       // For configuration files
-	DefaultCacheDir    = "/var/cache/blink" // For temporary/cache data
-	DefaultRoot        = "/"               // System root
-)
-
 var (
 	DistroName = "ApertureOS"
 
-	// BaseDataDirPath is the root directory for Blink data
-	// Can be overridden via BLINK_DATA_DIR environment variable
-	BaseDataDirPath = DefaultBaseDataDir
-
-	CurrentYear         = time.Now().Year()     // Current year for copyright
-	CurrentBlinkVersion = "v0.2.0-alpha"        // Blink version
+	BaseDataDirPath     = "/home/elia/Desktop/ApertureOS/blink/var-blink" // Default: /var/blink/
+	CurrentYear         = time.Now().Year()                               // Current year for copyright
+	CurrentBlinkVersion = "v0.2.0-alpha"                                  // Blink version
 
 	DefaultRepositoryList = `
 [pseudoRepository]
@@ -136,88 +124,28 @@ git_url = "https://github.com/Aperture-OS/testing-blink-repo.git"
 branch = "main"
 `
 
-	// Configurable paths - computed based on BaseDataDirPath
-	ConfigFilePath         string
-	LockFilePath           string
-	LocalRepositoryDirPath string
-	SourceDirPath          string
-	RecipeDirPath          string
-	ManifestFilePath       string
-	BuildDirPath           string
+	DefaultRoot = "/home/elia/Desktop/ApertureOS/blink/root/" // Default root directory
 
-	lock *Lock
-
-	// Initialized flag to ensure paths are computed only once
-	pathsInitialized bool
-)
-
-// getEnvOrDefault returns the environment variable value or default
-func getEnvOrDefault(key, defaultValue string) string {
-	if val := os.Getenv(key); val != "" {
-		return val
-	}
-	return defaultValue
-}
-
-// InitPaths initializes all path variables based on configuration
-// This should be called early in the program lifecycle
-func InitPaths() {
-	if pathsInitialized {
-		return
-	}
-
-	// Allow override via environment variables
-	dataDir := getEnvOrDefault("BLINK_DATA_DIR", DefaultBaseDataDir)
-	configDir := getEnvOrDefault("BLINK_CONFIG_DIR", DefaultConfigDir)
-	cacheDir := getEnvOrDefault("BLINK_CACHE_DIR", DefaultCacheDir)
-
-	// Use the OS root if provided via flag, otherwise use system root
-	osRoot := DefaultRoot
-
-	// Compute all paths
-	BaseDataDirPath = filepath.Clean(filepath.Join(osRoot, dataDir))
-	ConfigFilePath = filepath.Join(osRoot, configDir, "config.toml")
-	LockFilePath = filepath.Join(osRoot, configDir, "blink.lock")
-	LocalRepositoryDirPath = filepath.Join(osRoot, cacheDir, "repositories")
-	SourceDirPath = filepath.Join(osRoot, cacheDir, "sources")
-	RecipeDirPath = filepath.Join(osRoot, cacheDir, "recipes")
-	ManifestFilePath = filepath.Join(osRoot, configDir, "manifest.toml")
-	BuildDirPath = filepath.Join(osRoot, cacheDir, "build")
+	ConfigFilePath         = filepath.Join(BaseDataDirPath, "etc", "config.toml")
+	LockFilePath           = filepath.Join(BaseDataDirPath, "etc", "blink.lock") // Path to lock file
+	LocalRepositoryDirPath = filepath.Join(BaseDataDirPath, "repositories")
+	SourceDirPath          = filepath.Join(BaseDataDirPath, "sources") // Path to downloaded source
+	RecipeDirPath          = filepath.Join(BaseDataDirPath, "recipes")
+	ManifestFilePath       = filepath.Join(BaseDataDirPath, "etc", "manifest.toml")
+	BuildDirPath           = filepath.Join(BaseDataDirPath, "build")
 
 	lock = &Lock{Path: LockFilePath}
-	pathsInitialized = true
-}
 
-// ApplyRootWithInit applies root and initializes paths if not already done
-func ApplyRootWithInit(osRoot string) error {
-	InitPaths()
-	return ApplyRoot(osRoot)
-}
-
-// GetPaths returns the current paths (for external use)
-func GetPaths() Paths {
-	return Paths{
-		BaseDataDir:  BaseDataDirPath,
-		ConfigFile:   ConfigFilePath,
-		LockFile:     LockFilePath,
-		LocalRepoDir: LocalRepositoryDirPath,
-		SourceDir:    SourceDirPath,
-		RecipeDir:    RecipeDirPath,
-		ManifestFile: ManifestFilePath,
-		BuildDir:     BuildDirPath,
-	}
-}
-
-var SupportInformationSnippet = // Support information string
+	SupportInformationSnippet = // Support information string
 	`Having trouble? Join our Discord Server or open a GitHub issue.
 	Include any DEBUG INFO logs when reporting issues.
 	Discord: https://discord.com/invite/rx82u93hGD
 	GitHub Issues: https://github.com/Aperture-OS/blink-package-manager/issues`
 
-var VersionInformationSnippet = // version information string
+	VersionInformationSnippet = // version information string
 	fmt.Sprintf(`Blink Package Manager - Version %s 
 	Licensed under GPL v3.0 by Aperture OS
 	https://aperture-os.github.io
-	All rights reserved. \u00a9 Copyright 2025-%d Aperture OS.
+	All rights reserved. © Copyright 2025-%d Aperture OS.
 	`, CurrentBlinkVersion, CurrentYear)
-// TODO: migrate to /var/blink
+) // TODO: migrate to /var/blink

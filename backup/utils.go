@@ -41,15 +41,8 @@ import (
 
 func checkDirAndCreate(path string) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		// Use secure permissions: owner rwx, group rx, others nothing (0750)
-		if err := os.MkdirAll(path, 0750); err != nil {
+		if err := os.MkdirAll(path, os.ModePerm); err != nil {
 			return fmt.Errorf("failed to create directory: %v", err)
-		}
-		// Ensure correct ownership if running as root
-		if os.Geteuid() == 0 {
-			if err := os.Chown(path, 0, 0); err != nil {
-				return fmt.Errorf("failed to set ownership: %v", err)
-			}
 		}
 	}
 	return nil
@@ -158,8 +151,10 @@ func normalizeYesNo(s string) string {
 // check if running as root (user id 0), exit if not
 /***************************************************/
 
-// requireRoot is now an alias for RequireRoot from security.go
-// Kept for backward compatibility
 func requireRoot() {
-	RequireRoot()
+	if os.Geteuid() != 0 {
+		eyes.Fatalf(`This command must be run as Root or Super User (also known as Admin, Administrator, SU, etc.)
+		Please try again with 'sudo' infront of the command or as the root user ('su -').
+		`)
+	}
 }

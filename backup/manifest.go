@@ -35,36 +35,19 @@ import (
 
 // ensureManifest makes sure the manifest file exists and creates it if it doesn't
 func ensureManifest() error {
-	eyes.Infof("Ensuring manifest exists at %s", SanitizePath(ManifestFilePath))
+	eyes.Infof("Ensuring manifest exists at %s", ManifestFilePath)
 
-	// Use secure permissions for manifest directory
-	if err := os.MkdirAll(filepath.Dir(ManifestFilePath), 0750); err != nil {
-		return SafeError(err, "failed to create manifest directory")
-	}
-	// Set ownership to root if running as root
-	if os.Geteuid() == 0 {
-		if err := os.Chown(filepath.Dir(ManifestFilePath), 0, 0); err != nil {
-			return SafeError(err, "failed to set manifest directory ownership")
-		}
+	if err := os.MkdirAll(filepath.Dir(ManifestFilePath), 0755); err != nil {
+		return err
 	}
 
 	if _, err := os.Stat(ManifestFilePath); os.IsNotExist(err) {
 		m := Manifest{Installed: []InstalledPkg{}}
 		file, err := os.Create(ManifestFilePath)
 		if err != nil {
-			return SafeError(err, "failed to create manifest file")
+			return err
 		}
 		defer file.Close()
-		// Set secure permissions for manifest file
-		if err := file.Chmod(0640); err != nil {
-			return SafeError(err, "failed to set manifest file permissions")
-		}
-		// Set ownership to root if running as root
-		if os.Geteuid() == 0 {
-			if err := file.Chown(0, 0); err != nil {
-				return SafeError(err, "failed to set manifest file ownership")
-			}
-		}
 		return toml.NewEncoder(file).Encode(m)
 	}
 
@@ -73,7 +56,7 @@ func ensureManifest() error {
 
 // loadManifest loads the manifest from disk
 func loadManifest() (Manifest, error) {
-	eyes.Infof("Loading manifest from %s", SanitizePath(ManifestFilePath))
+	eyes.Infof("Loading manifest")
 
 	var m Manifest
 	if _, err := os.Stat(ManifestFilePath); os.IsNotExist(err) {
@@ -81,7 +64,7 @@ func loadManifest() (Manifest, error) {
 	}
 
 	if _, err := toml.DecodeFile(ManifestFilePath, &m); err != nil {
-		return m, SafeError(err, "failed to decode manifest")
+		return m, err
 	}
 
 	return m, nil
@@ -89,47 +72,24 @@ func loadManifest() (Manifest, error) {
 
 // saveManifest writes the manifest back to disk safely
 func saveManifest(m Manifest) error {
-	eyes.Infof("Saving manifest (%d packages) to %s", len(m.Installed), SanitizePath(ManifestFilePath))
+	eyes.Infof("Saving manifest (%d packages)", len(m.Installed))
 
-	// Use secure permissions for manifest directory
-	if err := os.MkdirAll(filepath.Dir(ManifestFilePath), 0750); err != nil {
-		return SafeError(err, "failed to create manifest directory")
-	}
-	// Set ownership to root if running as root
-	if os.Geteuid() == 0 {
-		if err := os.Chown(filepath.Dir(ManifestFilePath), 0, 0); err != nil {
-			return SafeError(err, "failed to set manifest directory ownership")
-		}
+	if err := os.MkdirAll(filepath.Dir(ManifestFilePath), 0755); err != nil {
+		return err
 	}
 
 	tmp := ManifestFilePath + ".tmp"
 
 	file, err := os.Create(tmp)
 	if err != nil {
-		return SafeError(err, "failed to create temp manifest file")
+		return err
 	}
 	defer file.Close()
 
-	// Set secure permissions for temp file
-	if err := file.Chmod(0640); err != nil {
-		return SafeError(err, "failed to set temp file permissions")
-	}
-	// Set ownership to root if running as root
-	if os.Geteuid() == 0 {
-		if err := file.Chown(0, 0); err != nil {
-			return SafeError(err, "failed to set temp file ownership")
-		}
-	}
-
 	if err := toml.NewEncoder(file).Encode(m); err != nil {
-		return SafeError(err, "failed to encode manifest")
+		return err
 	}
 
-	if err := file.Sync(); err != nil {
-		return SafeError(err, "failed to sync manifest file")
-	}
-
-	// Atomically rename to final location
 	return os.Rename(tmp, ManifestFilePath)
 }
 
@@ -137,7 +97,7 @@ func saveManifest(m Manifest) error {
 func manifestHas(name string) (*InstalledPkg, bool, error) {
 	m, err := loadManifest()
 	if err != nil {
-		return nil, false, SafeError(err, "failed to load manifest")
+		return nil, false, err
 	}
 
 	for _, p := range m.Installed {
@@ -159,14 +119,9 @@ func isInstalled(pkg string) bool {
 func addToManifest(pkg PackageInfo) error {
 	eyes.Infof("adding %s to manifest", pkg.Name)
 
-	// Validate package name
-	if err := ValidatePackageName(pkg.Name); err != nil {
-		return SafeError(err, "invalid package name")
-	}
-
 	m, err := loadManifest()
 	if err != nil {
-		return SafeError(err, "failed to load manifest")
+		return err
 	}
 
 	for _, p := range m.Installed {
@@ -189,14 +144,9 @@ func addToManifest(pkg PackageInfo) error {
 func removeFromManifest(pkg PackageInfo) error {
 	eyes.Infof("removing %s from manifest", pkg.Name)
 
-	// Validate package name
-	if err := ValidatePackageName(pkg.Name); err != nil {
-		return SafeError(err, "invalid package name")
-	}
-
 	m, err := loadManifest()
 	if err != nil {
-		return SafeError(err, "failed to load manifest")
+		return err
 	}
 
 	found := false

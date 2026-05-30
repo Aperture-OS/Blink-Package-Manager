@@ -32,18 +32,12 @@ import (
 // CreateDefaultConfig writes the default repository config to configPath
 func CreateDefaultConfig() error {
 	if ConfigFilePath == "" {
-		return SafeError(fmt.Errorf("ConfigFilePath is empty"), "config error")
+		return fmt.Errorf("ConfigFilePath is empty")
 	}
 
 	dir := filepath.Dir(ConfigFilePath)
 	if err := os.MkdirAll(dir, 0750); err != nil { // tighter permissions
-		return SafeError(err, "failed to create config directory")
-	}
-	// Set ownership to root if running as root
-	if os.Geteuid() == 0 {
-		if err := os.Chown(dir, 0, 0); err != nil {
-			return SafeError(err, "failed to set config directory ownership")
-		}
+		return err
 	}
 
 	// Write the raw TOML directly
@@ -51,41 +45,28 @@ func CreateDefaultConfig() error {
 git_url = "https://github.com/Aperture-OS/testing-blink-repo.git"
 branch = "main"
 `
-	// Use secure permissions: owner rw, group r, others nothing (0640)
 	if err := os.WriteFile(ConfigFilePath, []byte(defaultConfig), 0640); err != nil {
-		return SafeError(err, "failed to write default config")
+		return fmt.Errorf("failed to write default config: %v", err)
 	}
 
-	eyes.Infof("Default repository config created at %s", SanitizePath(ConfigFilePath))
+	eyes.Infof("Default repository config created at %s", ConfigFilePath)
 	return nil
 }
 
 func EnsureConfig() error {
 	if _, err := os.Stat(ConfigFilePath); os.IsNotExist(err) {
-		eyes.Infof("Config file not found. Creating default at %s", SanitizePath(ConfigFilePath))
+		eyes.Infof("Config file not found. Creating default at %s", ConfigFilePath)
 		if err := os.MkdirAll(filepath.Dir(ConfigFilePath), 0750); err != nil {
-			return SafeError(err, "failed to create config directory")
-		}
-		// Set ownership to root if running as root
-		if os.Geteuid() == 0 {
-			if err := os.Chown(filepath.Dir(ConfigFilePath), 0, 0); err != nil {
-				return SafeError(err, "failed to set config directory ownership")
-			}
+			return fmt.Errorf("failed to create config dir: %v", err)
 		}
 
 		defaultConfig := `[pseudoRepository]
 git_url = "https://github.com/Aperture-OS/testing-blink-repo.git"
 branch = "main"
+trustedKey = "/key.pub"
 `
-		// Use secure permissions: owner rw, group r, others nothing (0640)
 		if err := os.WriteFile(ConfigFilePath, []byte(defaultConfig), 0640); err != nil {
-			return SafeError(err, "failed to write default config")
-		}
-		// Set ownership to root if running as root
-		if os.Geteuid() == 0 {
-			if err := os.Chown(ConfigFilePath, 0, 0); err != nil {
-				return SafeError(err, "failed to set config file ownership")
-			}
+			return fmt.Errorf("failed to write default config: %v", err)
 		}
 	}
 	return nil
@@ -94,7 +75,7 @@ branch = "main"
 // LoadConfig loads the repository config from configPath
 func LoadConfig() (map[string]RepoConfig, error) {
 	if _, err := os.Stat(ConfigFilePath); os.IsNotExist(err) {
-		eyes.Infof("Config file not found. Creating default config at %s", SanitizePath(ConfigFilePath))
+		eyes.Infof("Config file not found. Creating default config at %s", ConfigFilePath)
 		if err := CreateDefaultConfig(); err != nil {
 			return nil, err
 		}
@@ -102,34 +83,21 @@ func LoadConfig() (map[string]RepoConfig, error) {
 
 	var repos map[string]RepoConfig
 	if _, err := toml.DecodeFile(ConfigFilePath, &repos); err != nil {
-		return nil, SafeError(err, "failed to decode config TOML")
+		return nil, fmt.Errorf("failed to decode config TOML: %v", err)
 	}
 
 	if len(repos) == 0 {
-		return nil, SafeError(fmt.Errorf("no repositories found in config"), "config error")
+		return nil, fmt.Errorf("no repositories found in config")
 	}
 
-	// Validate all repositories and warn about security issues
-	for name, repo := range repos {
-		// Validate URL
-		if err := ValidateURL(repo.URL); err != nil {
-			eyes.Warnf("Repository '%s' has invalid URL: %v", name, err)
-		}
-
-		// Warn if no trusted key is configured (INSECURE for production)
-		if repo.TrustedKey == "" {
-			eyes.Warnf("Repository '%s' has no GPG trusted key configured. This is INSECURE for production use!", name)
-		}
-	}
-
-	eyes.Infof("Loaded %d repositories from %s", len(repos), SanitizePath(ConfigFilePath))
+	eyes.Infof("Loaded %d repositories from %s", len(repos), ConfigFilePath)
 	return repos, nil
 }
 
 // LoadRepos reads repository definitions from a TOML file
 func LoadRepos(path string) (map[string]RepoConfig, error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil, SafeError(err, "repo config does not exist")
+		return nil, fmt.Errorf("repo config does not exist: %s", path)
 	}
 
 	var raw map[string]struct {
@@ -140,27 +108,11 @@ func LoadRepos(path string) (map[string]RepoConfig, error) {
 	}
 
 	if _, err := toml.DecodeFile(path, &raw); err != nil {
-		return nil, SafeError(err, "failed to decode repo config")
+		return nil, fmt.Errorf("failed to decode repo config: %v", err)
 	}
 
 	repos := make(map[string]RepoConfig)
 	for name, r := range raw {
-		// Validate trusted key path if provided
-		if r.Key != "" {
-			// If it's a relative path, it's relative to the repo directory
-			// Validate it doesn't contain path traversal
-			if !filepath.IsAbs(r.Key) {
-				if err := ValidatePath(r.Key, false); err != nil {
-					eyes.Warnf("Repository '%s' has invalid trusted key path: %v", name, err)
-				}
-			} else {
-				// Absolute path - validate it exists and is within safe locations
-				if _, err := os.Stat(r.Key); err != nil {
-					eyes.Warnf("Repository '%s' trusted key not found: %s", name, r.Key)
-				}
-			}
-		}
-
 		repos[name] = RepoConfig{
 			Name:       name,
 			URL:        r.GitURL,

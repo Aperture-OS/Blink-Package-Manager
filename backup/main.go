@@ -98,10 +98,6 @@ func colorScheme(ld lipgloss.LightDarkFunc) fang.ColorScheme {
 }
 
 func main() {
-	// Initialize paths early
-	InitPaths()
-	// Clean up stale lock files on startup
-	CleanStaleLocks()
 
 	eyes.SetLoggerConfiguration(eyes.LoggerConfiguration{
 		DisplayName:      "BLINK",

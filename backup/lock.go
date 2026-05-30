@@ -41,59 +41,59 @@ type Lock struct {
 func (l *Lock) Acquire() error {
 	f, err := os.OpenFile(l.Path, os.O_CREATE|os.O_RDWR, 0600) // safer perms
 	if err != nil {
-		return SafeError(err, "failed to open lock file")
+		return fmt.Errorf("failed to open lock file: %v", err)
 	}
 
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		f.Close()
 		if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EWOULDBLOCK) {
-			return SafeError(fmt.Errorf("another instance is running"), "lock acquisition failed")
+			return fmt.Errorf("another instance is running")
 		}
-		return SafeError(err, "failed to acquire lock")
+		return fmt.Errorf("failed to acquire lock: %v", err)
 	}
 
 	if err := f.Truncate(0); err != nil {
 		f.Close()
-		return SafeError(err, "failed to truncate lock file")
+		return fmt.Errorf("failed to truncate lock file: %v", err)
 	}
 
 	if _, err := f.Seek(0, 0); err != nil {
 		f.Close()
-		return SafeError(err, "failed to seek lock file")
+		return fmt.Errorf("failed to seek lock file: %v", err)
 	}
 
 	if _, err := fmt.Fprintf(f, "%d\n", os.Getpid()); err != nil {
 		f.Close()
-		return SafeError(err, "failed to write PID")
+		return fmt.Errorf("failed to write PID: %v", err)
 	}
 
 	if err := f.Sync(); err != nil {
 		f.Close()
-		return SafeError(err, "failed to sync lock file")
+		return fmt.Errorf("failed to sync lock file: %v", err)
 	}
 
 	l.file = f
-	eyes.Infof("Lock acquired at %s", SanitizePath(l.Path))
+	eyes.Infof("Lock acquired at %s", l.Path)
 	return nil
 }
 
 // Release releases the lock and closes the file.
 func (l *Lock) Release() error {
 	if l.file == nil {
-		return SafeError(fmt.Errorf("lock not acquired, cannot release"), "lock error")
+		return fmt.Errorf("lock not acquired, cannot release")
 	}
 
 	// Release the file lock
 	if err := syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN); err != nil {
-		return SafeError(err, "failed to release lock")
+		return fmt.Errorf("failed to release lock: %v", err)
 	}
 
 	// Close the file
 	if err := l.file.Close(); err != nil {
-		return SafeError(err, "failed to close lock file")
+		return fmt.Errorf("failed to close lock file: %v", err)
 	}
 
-	eyes.Infof("Lock released at %s", SanitizePath(l.Path))
+	eyes.Infof("Lock released at %s", l.Path)
 	l.file = nil
 	return nil
 }
@@ -105,7 +105,7 @@ func (l *Lock) IsLocked() (bool, error) {
 	// Open (or create) the lock file
 	f, err := os.OpenFile(l.Path, os.O_CREATE|os.O_RDWR, 0644)
 	if err != nil {
-		return false, SafeError(err, "failed to open lock file")
+		return false, fmt.Errorf("failed to open lock file: %v", err)
 	}
 	defer f.Close()
 
@@ -115,12 +115,12 @@ func (l *Lock) IsLocked() (bool, error) {
 		if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EWOULDBLOCK) {
 			return true, nil // Locked by another process
 		}
-		return false, SafeError(err, "error checking lock")
+		return false, fmt.Errorf("error checking lock: %v", err)
 	}
 
 	// Lock acquired successfully, immediately release it
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_UN); err != nil {
-		return false, SafeError(err, "failed to unlock after check")
+		return false, fmt.Errorf("failed to unlock after check: %v", err)
 	}
 
 	return false, nil

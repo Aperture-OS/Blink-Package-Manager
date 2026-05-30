@@ -44,18 +44,12 @@ func ensureRepo(force bool) error {
 
 	repos, err := LoadConfig() // defined in config.go
 	if err != nil {
-		return SafeError(err, "failed to load config")
+		return err
 	}
 
-	// Ensure base repository directory exists with secure permissions
-	if err := os.MkdirAll(LocalRepositoryDirPath, 0750); err != nil {
-		return SafeError(err, "failed to create repo directory")
-	}
-	// Set ownership to root if running as root
-	if os.Geteuid() == 0 {
-		if err := os.Chown(LocalRepositoryDirPath, 0, 0); err != nil {
-			return SafeError(err, "failed to set repo directory ownership")
-		}
+	// Ensure base repository directory exists
+	if err := os.MkdirAll(LocalRepositoryDirPath, 0755); err != nil {
+		return fmt.Errorf("failed to create repo dir: %v", err)
 	}
 
 	for name, repo := range repos {
@@ -167,87 +161,51 @@ func fastForwardRepo(ctx context.Context, path, commit string) error {
 // verifyGPGCommit verifies that a specific commit is signed by the trusted key
 // Uses an isolated GNUPGHOME and enforces fingerprint matching
 func verifyGPGCommit(ctx context.Context, repoPath, commit, pubKeyPath string) (bool, error) {
-	// Validate pubKeyPath is safe
-	if err := ValidateFilePath(pubKeyPath); err != nil {
-		return false, SafeError(err, "invalid GPG key path")
-	}
-
-	// Validate pubKeyPath exists and is a regular file
-	info, err := os.Stat(pubKeyPath)
+	gnupgHome, err := os.MkdirTemp("", "blink-gnupg-")
 	if err != nil {
-		return false, SafeError(err, "GPG key file not found")
-	}
-	if info.IsDir() {
-		return false, SafeError(fmt.Errorf("GPG key path is a directory"), "invalid key path")
-	}
-
-	// Validate key file size (reasonable limit - 100KB)
-	if info.Size() > 100*1024 {
-		return false, SafeError(fmt.Errorf("GPG key file too large"), "key validation failed")
-	}
-
-	// Use secure temp directory for GNUPGHOME
-	gnupgHome, err := os.MkdirTemp(BaseDataDirPath, "blink-gnupg-")
-	if err != nil {
-		return false, SafeError(err, "failed to create temp directory")
+		return false, err
 	}
 	defer os.RemoveAll(gnupgHome)
 
-	// Set restrictive permissions
-	if err := os.Chmod(gnupgHome, 0700); err != nil {
-		return false, SafeError(err, "failed to set permissions on temp directory")
-	}
-
 	env := append(os.Environ(), "GNUPGHOME="+gnupgHome)
 
-	// Import trusted key with timeout
-	importCtx, importCancel := context.WithTimeout(ctx, 30*time.Second)
-	defer importCancel()
-	
-	cmd := exec.CommandContext(importCtx, "gpg", "--import", pubKeyPath)
+	// Import trusted key
+	cmd := exec.CommandContext(ctx, "gpg", "--import", pubKeyPath)
 	cmd.Env = env
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return false, SafeError(fmt.Errorf("failed to import key: %v\n%s", err, string(out)), "GPG import failed")
+		return false, fmt.Errorf("failed to import key: %v\n%s", err, string(out))
 	}
 
-	// Extract expected fingerprint with timeout
-	fingerprintCtx, fpCancel := context.WithTimeout(ctx, 30*time.Second)
-	defer fpCancel()
-	
-	cmd = exec.CommandContext(fingerprintCtx, "gpg", "--with-colons", "--fingerprint")
+	// Extract expected fingerprint
+	cmd = exec.CommandContext(ctx, "gpg", "--with-colons", "--fingerprint")
 	cmd.Env = env
 	out, err := cmd.Output()
 	if err != nil {
-		return false, SafeError(err, "failed to get fingerprint")
+		return false, err
 	}
 
 	var expectedFP string
 	for _, line := range strings.Split(string(out), "\n") {
 		if strings.HasPrefix(line, "fpr:") {
 			parts := strings.Split(line, ":")
-			if len(parts) >= 10 {
-				expectedFP = parts[9]
-				break
-			}
+			expectedFP = parts[9]
+			break
 		}
 	}
 	if expectedFP == "" {
-		return false, SafeError(fmt.Errorf("could not extract trusted key fingerprint"), "fingerprint extraction failed")
+		return false, fmt.Errorf("could not extract trusted key fingerprint")
 	}
 
-	// Verify commit and capture signer fingerprint with timeout
-	verifyCtx, verifyCancel := context.WithTimeout(ctx, 30*time.Second)
-	defer verifyCancel()
-	
-	cmd = exec.CommandContext(verifyCtx, "git", "-C", repoPath, "verify-commit", "--raw", commit)
+	// Verify commit and capture signer fingerprint
+	cmd = exec.CommandContext(ctx, "git", "-C", repoPath, "verify-commit", "--raw", commit)
 	cmd.Env = env
 	out, err = cmd.CombinedOutput()
 	if err != nil {
-		return false, SafeError(fmt.Errorf("GPG verification failed: %v\n%s", err, string(out)), "verification failed")
+		return false, fmt.Errorf("GPG verification failed: %v\n%s", err, string(out))
 	}
 
 	if !strings.Contains(string(out), expectedFP) {
-		return false, SafeError(fmt.Errorf("commit not signed by trusted key"), "signature mismatch")
+		return false, fmt.Errorf("commit not signed by trusted key")
 	}
 
 	return true, nil

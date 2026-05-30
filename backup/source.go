@@ -22,11 +22,12 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/Aperture-OS/eyes"
 )
@@ -40,92 +41,41 @@ import (
 // in calling functions.
 
 func getSource(url string, isForce bool) error {
-	baseName := filepath.Base(url)
-	srcPath := filepath.Join(SourceDirPath, baseName)
 
-	// Validate URL first
-	if err := ValidateURL(url); err != nil {
-		return SafeError(err, "invalid source URL")
-	}
+	if _, err := os.Stat(filepath.Join(SourceDirPath, filepath.Base(url))); os.IsNotExist(err) || isForce { // if recipe does not exist or force is true, download
 
-	// Check if source is cached and valid
-	if !isForce {
-		if _, err := os.Stat(srcPath); err == nil {
-			// Source exists, check if it's still valid
-			if isSourceValid(srcPath) {
-				eyes.Infof("Using cached source: %s", baseName)
-				return nil
-			}
+		if isForce { // if isForce is true, log it (isForce == true is useless because isForce already implies it exists and is true, so we simplify it to just isForce)
+			eyes.Infof("Force flag detected, re-downloading source from %s", url)
 		}
-	}
 
-	if isForce {
-		eyes.Infof("Force flag detected, re-downloading source from %s", url)
-	}
+		// Perform HTTP GET request
 
-	// Validate and ensure source directory exists with secure permissions
-	if err := checkDirAndCreate(SourceDirPath); err != nil {
-		return SafeError(err, "failed to create source directory")
-	}
+		resp, err := http.Get(url)
+		if err != nil {
+			return fmt.Errorf("failed to download recipe: %v", err)
+		}
+		defer resp.Body.Close()
+		// Check HTTP status
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("failed to download recipe, status: %s", resp.Status)
+		}
 
-	// Use SafeDownload for secure downloading
-	if err := SafeDownload(url, srcPath); err != nil {
-		return SafeError(err, "failed to download source")
-	}
+		checkDirAndCreate(SourceDirPath)
 
-	// Validate the downloaded file
-	if err := validateDownloadedSource(srcPath, url); err != nil {
-		os.Remove(srcPath)
-		return SafeError(err, "source validation failed")
-	}
+		// Create file to save source
+		outFile, err := os.Create(filepath.Join(SourceDirPath, filepath.Base(url)))
+		if err != nil {
+			return fmt.Errorf("failed to create recipe file: %v", err)
+		}
+		defer outFile.Close()
 
-	return nil
-}
-
-// isSourceValid checks if a cached source file is still valid
-func isSourceValid(srcPath string) bool {
-	// Check file exists
-	info, err := os.Stat(srcPath)
-	if err != nil {
-		return false
-	}
-
-	// Check file size is reasonable
-	if info.Size() == 0 {
-		return false
-	}
-
-	if info.Size() > MaxExtractSize {
-		return false
-	}
-
-	// Check file modification time (cache for 24 hours)
-	if time.Since(info.ModTime()) < 24*time.Hour {
-		return true
-	}
-
-	return false
-}
-
-// validateDownloadedSource validates a downloaded source file
-func validateDownloadedSource(srcPath, url string) error {
-	// Check file size
-	info, err := os.Stat(srcPath)
-	if err != nil {
-		return err
-	}
-
-	if info.Size() == 0 {
-		return fmt.Errorf("downloaded file is empty")
-	}
-
-	if info.Size() > MaxDownloadSize {
-		return fmt.Errorf("downloaded file too large: %d bytes", info.Size())
-	}
-
-	// Check magic bytes match expected type
-	if _, err := DetectArchiveType(srcPath); err != nil {
-		return fmt.Errorf("downloaded file is not a valid archive: %v", err)
+		// Copy response body to file
+		_, err = io.Copy(outFile, resp.Body)
+		if err != nil {
+			return fmt.Errorf("failed to write recipe file: %v", err)
+		}
+	} else {
+		eyes.Warnf("Source already exists, skipping download. Use --force or -f to re-download.")
 	}
 
 	return nil
@@ -143,44 +93,30 @@ func decompressSource(pkg PackageInfo, dest string) error {
 	srcFile := filepath.Join(SourceDirPath, filepath.Base(pkg.Source.URL))
 
 	if _, err := os.Stat(srcFile); err != nil {
-		return SafeError(err, "source archive not found")
+		return fmt.Errorf("source archive not found: %s", srcFile)
 	}
 
-	// Validate archive before extraction
-	if err := ValidateArchiveContent(srcFile, dest); err != nil {
-		return SafeError(err, "archive validation failed")
-	}
-
-	// Extract based on detected type
-	archiveType, err := DetectArchiveType(srcFile)
-	if err != nil {
-		return SafeError(err, "cannot detect archive type")
-	}
-
-	if err := os.MkdirAll(dest, 0750); err != nil {
-		return SafeError(err, "failed to create destination directory")
+	if err := os.MkdirAll(dest, 0755); err != nil {
+		return err
 	}
 
 	var cmd *exec.Cmd
 
-	switch archiveType {
-	case ".tar.gz", ".tgz":
+	switch {
+	case strings.HasSuffix(srcFile, ".tar.gz"), strings.HasSuffix(srcFile, ".tgz"):
 		cmd = exec.Command("tar", "-xzf", srcFile, "-C", dest)
 
-	case ".tar.xz":
+	case strings.HasSuffix(srcFile, ".tar.xz"):
 		cmd = exec.Command("tar", "-xJf", srcFile, "-C", dest)
 
-	case ".tar.bz2":
+	case strings.HasSuffix(srcFile, ".tar.bz2"):
 		cmd = exec.Command("tar", "-xjf", srcFile, "-C", dest)
 
-	case ".zip":
+	case strings.HasSuffix(srcFile, ".zip"):
 		cmd = exec.Command("unzip", "-q", srcFile, "-d", dest)
 
-	case ".tar":
-		cmd = exec.Command("tar", "-xf", srcFile, "-C", dest)
-
 	default:
-		return SafeError(fmt.Errorf("unsupported archive format: %s", archiveType), "archive extraction failed")
+		return fmt.Errorf("unsupported archive format: %s", srcFile)
 	}
 
 	eyes.Infof("Running extract command: %v", cmd.Args)
@@ -188,12 +124,7 @@ func decompressSource(pkg PackageInfo, dest string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	// Run with timeout to prevent hanging
-	if err := RunWithTimeout(cmd.Path, cmd.Args, MaxBuildTime); err != nil {
-		return SafeError(err, "extraction failed")
-	}
-
-	return nil
+	return cmd.Run()
 }
 
 // postExtractDir returns the actual build directory inside dest.
@@ -205,7 +136,7 @@ func postExtractDir(extractRoot string) (string, error) {
 
 	entries, err := os.ReadDir(extractRoot)
 	if err != nil {
-		return "", SafeError(err, "failed to read extract root")
+		return "", err
 	}
 
 	if len(entries) == 1 && entries[0].IsDir() {
@@ -224,13 +155,9 @@ func postExtractDir(extractRoot string) (string, error) {
 // and returns an error if any unsafe paths are found.
 
 func safeExtractToRoot(pkg PackageInfo, extractRoot string) error {
-	// reuse existing extractor with validation
-	if err := ValidateArchiveContent(filepath.Join(SourceDirPath, filepath.Base(pkg.Source.URL)), extractRoot); err != nil {
-		return SafeError(err, "safe extraction validation failed")
-	}
-
+	// reuse existing extractor
 	if err := decompressSource(pkg, extractRoot); err != nil {
-		return SafeError(err, "decompression failed")
+		return err
 	}
 
 	// walk extracted files and block path traversal
@@ -246,7 +173,7 @@ func safeExtractToRoot(pkg PackageInfo, extractRoot string) error {
 
 		// no absolute paths, no ..
 		if strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
-			return SafeError(fmt.Errorf("unsafe path detected in binary package: %s", path), "path traversal detected")
+			return fmt.Errorf("unsafe path detected in binary package: %s", path)
 		}
 
 		return nil

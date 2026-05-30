@@ -36,11 +36,6 @@ import (
 // called internally by other functions, ensuring reusing code, modularity, and less repetition
 
 func getpkg(pkgName string, path string) error {
-	// Validate package name first
-	if err := ValidatePackageName(pkgName); err != nil {
-		return SafeError(err, "invalid package name")
-	}
-
 	eyes.Infof("Getting package recipe from local repository...")
 
 	// acquire lock
@@ -115,10 +110,6 @@ func getpkg(pkgName string, path string) error {
 // avoids 2 functions for fetching and displaying info separately
 
 func fetchpkg(path string, force bool, pkgName string, quiet bool) (PackageInfo, error) {
-	// Validate package name first
-	if err := ValidatePackageName(pkgName); err != nil {
-		return PackageInfo{}, SafeError(err, "invalid package name")
-	}
 
 	if !quiet {
 		eyes.Infof("Fetching package %q", pkgName)
@@ -280,65 +271,22 @@ func install(pkgName string, force bool, path string) error {
 			return err
 		}
 
-		// Save current environment to restore later
-		oldEnv := os.Environ()
-		defer func() {
-			// Restore original environment
-			os.Clearenv()
-			for _, e := range oldEnv {
-				pair := strings.SplitN(e, "=", 2)
-				if len(pair) == 2 {
-					os.Setenv(pair[0], pair[1])
-				}
-			}
-		}()
-
 		for k, v := range pkg.Build.Env {
 			os.Setenv(k, v)
 		}
 
-		// Validate package name before executing commands
-		if err := ValidatePackageName(pkg.Name); err != nil {
-			return SafeError(err, "invalid package name")
-		}
-
-		// Execute prepare commands in sandbox
 		for _, cmd := range pkg.Build.Prepare {
-			// Validate command doesn't contain dangerous patterns
-			if containsShellMetaChars(cmd) {
-				return SafeError(fmt.Errorf("dangerous command detected: %s", cmd), "command validation failed")
-			}
-			// Use safe command execution
-			if err := RunCommandSafely("sh", "-c", cmd); err != nil {
-				return SafeError(err, "prepare command failed")
+			if err := runCmd("sh", "-c", cmd); err != nil {
+				return err
 			}
 		}
-		// Execute install commands in sandbox
 		for _, cmd := range pkg.Build.Install {
-			// Validate command doesn't contain dangerous patterns
-			if containsShellMetaChars(cmd) {
-				return SafeError(fmt.Errorf("dangerous command detected: %s", cmd), "command validation failed")
-			}
-			// Use safe command execution
-			if err := RunCommandSafely("sh", "-c", cmd); err != nil {
-				return SafeError(err, "install command failed")
+			if err := runCmd("sh", "-c", cmd); err != nil {
+				return err
 			}
 		}
 
 	case "precompiled":
-		// First verify source hash for precompiled packages too
-		if err := getSource(pkg.Source.URL, force); err != nil {
-			return SafeError(err, "failed to download source for verification")
-		}
-		srcFile := filepath.Join(SourceDirPath, filepath.Base(pkg.Source.URL))
-		ok, err := VerifySHA256(pkg.Source.Sha256, srcFile)
-		if err != nil {
-			return SafeError(err, "failed to verify source hash")
-		}
-		if !ok {
-			return SafeError(fmt.Errorf("source hash mismatch for %s", srcFile), "hash verification failed")
-		}
-
 		if err := safeExtractToRoot(pkg, buildRoot); err != nil {
 			return err
 		}
@@ -354,65 +302,42 @@ func install(pkgName string, force bool, path string) error {
 				return nil
 			}
 
-			// CRITICAL: Validate relative path is safe (no path traversal)
-			if !IsSafeRelativePath(rel) {
-				return SafeError(fmt.Errorf("unsafe path detected: %s", rel), "path traversal blocked")
-			}
-
-			// Validate that the target path stays within root
 			target := filepath.Join("/", rel)
-			cleanedTarget := filepath.Clean(target)
-			if !strings.HasPrefix(cleanedTarget, "/") {
-				return SafeError(fmt.Errorf("invalid target path: %s", target), "invalid path")
-			}
-
 			if info.IsDir() {
-				// Use secure permissions for directories
-				return os.MkdirAll(target, 0755)
+				return os.MkdirAll(target, info.Mode())
 			}
 
 			if info.Mode()&os.ModeSymlink != 0 {
-				// Skip symlinks for security
-				eyes.Warnf("Skipping symlink: %s", src)
 				return nil
 			}
 
 			// copy with immediate close
 			in, err := os.Open(src)
 			if err != nil {
-				return SafeError(err, "failed to open source file")
+				return err
 			}
 			defer in.Close()
 
 			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-				return SafeError(err, "failed to create target directory")
+				return err
 			}
 
 			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode())
 			if err != nil {
-				return SafeError(err, "failed to create target file")
+				return err
 			}
 			defer out.Close()
 
 			_, err = io.Copy(out, in)
-			if err != nil {
-				return SafeError(err, "failed to copy file")
-			}
-			return nil
+			return err
 		})
 		if err != nil {
 			return err
 		}
 
-		// Execute install commands for precompiled packages
 		for _, cmd := range pkg.Build.Install {
-			// Validate command
-			if containsShellMetaChars(cmd) {
-				return SafeError(fmt.Errorf("dangerous command detected: %s", cmd), "command validation failed")
-			}
-			// Use safe command execution
-			if err := RunCommandSafely("sh", "-c", cmd); err != nil {
-				return SafeError(err, "install command failed")
+			if err := runCmd("sh", "-c", cmd); err != nil {
+				return err
 			}
 		}
 
@@ -454,100 +379,46 @@ func uninstall(pkgName string, force bool, path string) error {
 		return fmt.Errorf("package %s doesn't exist.", pkgName)
 	}
 
-	// Validate package name
-	if err := ValidatePackageName(pkgName); err != nil {
-		return SafeError(err, "invalid package name")
-	}
-
 	// prepare build root
-	if err := os.MkdirAll(BuildDirPath, 0750); err != nil {
-		return SafeError(err, "failed to create build directory")
+	if err := os.MkdirAll(BuildDirPath, 0755); err != nil {
+		return err
 	}
 
 	extractRoot := filepath.Join(BuildDirPath, pkg.Name)
 
 	_ = os.RemoveAll(extractRoot)
-	if err := os.MkdirAll(extractRoot, 0750); err != nil {
-		return SafeError(err, "failed to create extract directory")
+	if err := os.MkdirAll(extractRoot, 0755); err != nil {
+		return err
 	}
 
-	// Check if source is already cached
+	// download source
+	if err := getSource(pkg.Source.URL, force); err != nil {
+		return err
+	}
+
 	srcFile := filepath.Join(SourceDirPath, filepath.Base(pkg.Source.URL))
-	if _, err := os.Stat(srcFile); os.IsNotExist(err) || force {
-		// Only download if not cached
-		if err := getSource(pkg.Source.URL, force); err != nil {
-			return SafeError(err, "failed to download source")
-		}
-	} else {
-		eyes.Infof("Using cached source for verification")
-	}
-
-	// Verify source hash
-	ok, err := VerifySHA256(pkg.Source.Sha256, srcFile)
+	ok, err := compareSHA256(pkg.Source.Sha256, srcFile)
 	if err != nil {
-		return SafeError(err, "failed to verify source hash")
+		return err
 	}
 	if !ok {
 		eyes.Errorf("Source hash mismatch for %s", srcFile)
-		return SafeError(fmt.Errorf("source hash mismatch for %s", srcFile), "hash verification failed")
+		return fmt.Errorf("source hash mismatch for %s", srcFile)
 	}
 
-	// For uninstall, we typically don't need to extract the source
-	// unless the uninstall commands explicitly need it
-	// Most uninstall commands should be self-contained (e.g., removing files they created)
-	
-	// Only extract if there are uninstall commands that might need it
-	if len(pkg.Build.Uninstall) > 0 {
-		// Check if any uninstall command references the source
-		needsExtraction := false
-		for _, cmd := range pkg.Build.Uninstall {
-			if strings.Contains(cmd, "$PWD") || strings.Contains(cmd, "./") ||
-				strings.Contains(cmd, "src") || strings.Contains(cmd, "source") {
-				needsExtraction = true
-				break
-			}
-		}
-		
-		if needsExtraction {
-			if err := decompressSource(pkg, extractRoot); err != nil {
-				return SafeError(err, "failed to extract source")
-			}
-
-			buildDir, err := postExtractDir(extractRoot)
-			if err != nil {
-				return SafeError(err, "failed to get build directory")
-			}
-
-			if err := os.Chdir(buildDir); err != nil {
-				return SafeError(err, "failed to change directory")
-			}
-		} else {
-			// Uninstall commands don't need source extraction
-			// Just change to a safe directory
-			if err := os.Chdir("/tmp"); err != nil {
-				return SafeError(err, "failed to change to temp directory")
-			}
-		}
-	} else {
-		// No uninstall commands - this is a bug but we'll handle it gracefully
-		eyes.Warnf("Package %s has no uninstall commands defined", pkgName)
-		if err := os.Chdir("/tmp"); err != nil {
-			return SafeError(err, "failed to change to temp directory")
-		}
+	// extract
+	if err := decompressSource(pkg, extractRoot); err != nil {
+		return err
 	}
 
-	// Save current environment to restore later
-	oldEnv := os.Environ()
-	defer func() {
-		// Restore original environment
-		os.Clearenv()
-		for _, e := range oldEnv {
-			pair := strings.SplitN(e, "=", 2)
-			if len(pair) == 2 {
-				os.Setenv(pair[0], pair[1])
-			}
-		}
-	}()
+	buildDir, err := postExtractDir(extractRoot)
+	if err != nil {
+		return err
+	}
+
+	if err := os.Chdir(buildDir); err != nil {
+		return err
+	}
 
 	// env
 	for k, v := range pkg.Build.Env {
@@ -555,22 +426,17 @@ func uninstall(pkgName string, force bool, path string) error {
 		os.Setenv(k, v)
 	}
 
-	// Execute uninstall commands
+	// install
 	for _, cmd := range pkg.Build.Uninstall {
-		// Validate command
-		if containsShellMetaChars(cmd) {
-			return SafeError(fmt.Errorf("dangerous command detected: %s", cmd), "command validation failed")
-		}
-		// Use safe command execution
-		if err := RunCommandSafely("sh", "-c", cmd); err != nil {
-			eyes.Warnf("Uninstall command failed (continuing): %v", err)
-			// Don't return error, try to continue with other commands
+		eyes.Infof("Uninstalling package.")
+		if err := runCmd("sh", "-c", cmd); err != nil {
+			return err
 		}
 	}
 
 	// record install
 	if err := removeFromManifest(pkg); err != nil {
-		return SafeError(err, "failed to remove from manifest")
+		return err
 	}
 
 	return nil
