@@ -80,15 +80,21 @@ func saveManifest(m Manifest) error {
 
 	tmp := ManifestFilePath + ".tmp"
 
-	file, err := os.Create(tmp)
+	file, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0640)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
 
 	if err := toml.NewEncoder(file).Encode(m); err != nil {
+		file.Close()
 		return err
 	}
+
+	if err := file.Sync(); err != nil {
+		file.Close()
+		return err
+	}
+	file.Close()
 
 	return os.Rename(tmp, ManifestFilePath)
 }

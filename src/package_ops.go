@@ -205,6 +205,10 @@ func install(pkgName string, force bool, path string) error {
 		return err
 	}
 
+	if err := pkg.Validate(); err != nil {
+		return fmt.Errorf("package validation failed for %s: %v", pkg.Name, err)
+	}
+
 	installed, exists, err := manifestHas(pkg.Name)
 	if err != nil {
 		return err
@@ -367,6 +371,10 @@ func uninstall(pkgName string, force bool, path string) error {
 	pkg, err := fetchpkg(path, force, pkgName, false)
 	if err != nil {
 		return err
+	}
+
+	if err := pkg.Validate(); err != nil {
+		return fmt.Errorf("package validation failed for %s: %v", pkg.Name, err)
 	}
 
 	_, exists, err := manifestHas(pkg.Name)

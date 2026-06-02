@@ -41,7 +41,7 @@ import (
 
 func checkDirAndCreate(path string) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if err := os.MkdirAll(path, os.ModePerm); err != nil {
+		if err := os.MkdirAll(path, 0750); err != nil {
 			return fmt.Errorf("failed to create directory: %v", err)
 		}
 	}

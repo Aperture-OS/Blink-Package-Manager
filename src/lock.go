@@ -102,8 +102,7 @@ func (l *Lock) Release() error {
 // It attempts to acquire the lock non-blocking and immediately releases it.
 // Note: This check is advisory and may race with other processes.
 func (l *Lock) IsLocked() (bool, error) {
-	// Open (or create) the lock file
-	f, err := os.OpenFile(l.Path, os.O_CREATE|os.O_RDWR, 0644)
+	f, err := os.OpenFile(l.Path, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return false, fmt.Errorf("failed to open lock file: %v", err)
 	}

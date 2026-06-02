@@ -20,53 +20,109 @@
 
 package main
 
-// PackageInfo represents the JSON structure of a package recipe
+import (
+	"fmt"
+	"net/url"
+	"regexp"
+	"strings"
+)
+
+var validSHA256Re = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
+
+var allowedBuildEnvKeys = map[string]bool{
+	"CC":              true,
+	"CXX":             true,
+	"CFLAGS":          true,
+	"CXXFLAGS":        true,
+	"LDFLAGS":         true,
+	"PREFIX":          true,
+	"DESTDIR":         true,
+	"MAKEFLAGS":       true,
+	"PKG_CONFIG_PATH": true,
+}
+
+var allowedSourceTypes = map[string]bool{
+	"tar.gz":  true,
+	"tar.xz":  true,
+	"tar.bz2": true,
+	"tar.zst": true,
+	"zip":     true,
+}
+
 type PackageInfo struct {
-	Name        string   `json:"name"`        // Package name
-	Version     string   `json:"version"`     // Package version
-	Release     int      `json:"release"`     // Release number
-	Description string   `json:"description"` // Short description
-	Author      string   `json:"author"`      // Author of package
-	License     string   `json:"license"`     // License type (MIT, GPL, etc.)
-	Source      struct { // Source code info
-		URL    string `json:"url"`    // URL to download source code
-		Type   string `json:"type"`   // Archive type (zip, tar, etc.)
-		Sha256 string `json:"sha256"` // Checksum for verification
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	Release     int    `json:"release"`
+	Description string `json:"description"`
+	Author      string `json:"author"`
+	License     string `json:"license"`
+	Source      struct {
+		URL    string `json:"url"`
+		Type   string `json:"type"`
+		Sha256 string `json:"sha256"`
 	} `json:"source"`
-	Dependencies map[string]string `json:"dependencies"` // Required dependencies
-	OptDeps      []struct {        // Optional dependencies groups
-		ID          int      `json:"id"`          // Group ID
-		Description string   `json:"description"` // Group description
-		Options     []string `json:"options"`     // List of options
-		Default     string   `json:"default"`     // Default option
+	Dependencies map[string]string `json:"dependencies"`
+	OptDeps      []struct {
+		ID          int      `json:"id"`
+		Description string   `json:"description"`
+		Options     []string `json:"options"`
+		Default     string   `json:"default"`
 	} `json:"opt_dependencies"`
-	Build struct { // Build instructions
-		Kind      string            `json:"kind"`      // toCompile or preCompiled
-		Env       map[string]string `json:"env"`       // Environment variables for build
-		Prepare   []string          `json:"prepare"`   // Commands to prepare build
-		Install   []string          `json:"install"`   // Commands to install package
-		Uninstall []string          `json:"uninstall"` // Commands to uninstall package
+	Build struct {
+		Kind      string            `json:"kind"`
+		Env       map[string]string `json:"env"`
+		Prepare   []string          `json:"prepare"`
+		Install   []string          `json:"install"`
+		Uninstall []string          `json:"uninstall"`
 	} `json:"build"`
 }
 
-// Manifest represents Blink's installed package database
+func (p *PackageInfo) Validate() error {
+	u, err := url.Parse(p.Source.URL)
+	if err != nil {
+		return fmt.Errorf("source URL is unparseable: %v", err)
+	}
+	if u.Scheme != "https" {
+		return fmt.Errorf("source URL must use https://, got scheme %q", u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("source URL must have a non-empty host")
+	}
+
+	if !validSHA256Re.MatchString(p.Source.Sha256) {
+		return fmt.Errorf("source sha256 %q is not a valid 64-character hex digest", p.Source.Sha256)
+	}
+
+	if !allowedSourceTypes[p.Source.Type] {
+		return fmt.Errorf("unsupported source type %q", p.Source.Type)
+	}
+
+	for k, v := range p.Build.Env {
+		if !allowedBuildEnvKeys[k] {
+			return fmt.Errorf("disallowed build env key %q", k)
+		}
+		if strings.ContainsAny(v, "\x00\n\r") {
+			return fmt.Errorf("build env value for key %q contains disallowed control characters", k)
+		}
+	}
+
+	return nil
+}
 
 type Manifest struct {
 	Installed []InstalledPkg `json:"installed"`
 }
 
-// InstalledPkg represents a package entry in the manifest
 type InstalledPkg struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
 	Release int64  `json:"release"`
 }
 
-// RepoConfig holds repository information from the config file
 type RepoConfig struct {
-	Name       string `toml:"-"`          // Optional, not in TOML
-	URL        string `toml:"git_url"`    // Maps git_url in TOML
-	Ref        string `toml:"branch"`     // Maps branch in TOML
-	Hash       string `toml:"hash"`       // Optional pinned commit
-	TrustedKey string `toml:"trustedKey"` // GPG key path as the root of the repository (eg. "/key.pub")
+	Name       string `toml:"-"`
+	URL        string `toml:"git_url"`
+	Ref        string `toml:"branch"`
+	Hash       string `toml:"hash"`
+	TrustedKey string `toml:"trustedKey"`
 }

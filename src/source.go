@@ -24,13 +24,30 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Aperture-OS/eyes"
 )
+
+const maxDownloadSize = 2 * 1024 * 1024 * 1024
+
+var httpClient = &http.Client{
+	Timeout: 30 * time.Minute,
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return fmt.Errorf("too many redirects")
+		}
+		if req.URL.Scheme != "https" {
+			return fmt.Errorf("redirect to non-https URL blocked: %s", req.URL)
+		}
+		return nil
+	},
+}
 
 // getSource downloads the source code archive from the specified URL if it doesn't already exist or if force is true
 // This function checks if the source file already exists in the SourceDirPath directory. If it does not exist or if the isForce flag is set to true,
@@ -48,31 +65,37 @@ func getSource(url string, isForce bool) error {
 			eyes.Infof("Force flag detected, re-downloading source from %s", url)
 		}
 
-		// Perform HTTP GET request
-
-		resp, err := http.Get(url)
+		parsedURL, err := neturl.Parse(url)
 		if err != nil {
-			return fmt.Errorf("failed to download recipe: %v", err)
+			return fmt.Errorf("invalid source URL: %v", err)
+		}
+		if parsedURL.Scheme != "https" {
+			return fmt.Errorf("only https:// URLs are permitted, got %q", parsedURL.Scheme)
+		}
+
+		resp, err := httpClient.Get(url)
+		if err != nil {
+			return fmt.Errorf("failed to download source: %v", err)
 		}
 		defer resp.Body.Close()
-		// Check HTTP status
+
 		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("failed to download recipe, status: %s", resp.Status)
+			return fmt.Errorf("failed to download source, status: %s", resp.Status)
 		}
+
+		limitedReader := io.LimitReader(resp.Body, maxDownloadSize)
 
 		checkDirAndCreate(SourceDirPath)
 
-		// Create file to save source
-		outFile, err := os.Create(filepath.Join(SourceDirPath, filepath.Base(url)))
+		outFile, err := os.OpenFile(filepath.Join(SourceDirPath, filepath.Base(url)), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0640)
 		if err != nil {
-			return fmt.Errorf("failed to create recipe file: %v", err)
+			return fmt.Errorf("failed to create source file: %v", err)
 		}
 		defer outFile.Close()
 
-		// Copy response body to file
-		_, err = io.Copy(outFile, resp.Body)
+		_, err = io.Copy(outFile, limitedReader)
 		if err != nil {
-			return fmt.Errorf("failed to write recipe file: %v", err)
+			return fmt.Errorf("failed to write source file: %v", err)
 		}
 	} else {
 		eyes.Warnf("Source already exists, skipping download. Use --force or -f to re-download.")

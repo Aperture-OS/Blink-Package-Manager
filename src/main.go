@@ -18,27 +18,48 @@
   along with this program.  If not, see <https://www.apache.org/licenses/LICENSE-2.0>.
 */
 
-package main // main package, entry point
+package main
 
 import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/fang" // For fancy terminal output
+	"github.com/charmbracelet/fang"
 	"github.com/spf13/cobra"
 
 	"github.com/Aperture-OS/eyes"
 	"github.com/fatih/color"
 )
 
-// main function - entry point of the Blink package manager
-// sets up Cobra CLI commands and flags
-// handles user input and executes corresponding functions
-// provides commands for downloading, fetching info, installing packages
-// also includes support and version commands
-// uses modular functions for package operations to enhance readability and maintainability
+var validPkgName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._+-]{0,127}$`)
+
+func validatePackageName(name string) error {
+	if !validPkgName.MatchString(name) {
+		return fmt.Errorf("invalid package name %q: must match ^[a-zA-Z0-9][a-zA-Z0-9._+-]{0,127}$", name)
+	}
+	return nil
+}
+
+func validateRoot(root string) error {
+	cleaned := filepath.Clean(root)
+	if !filepath.IsAbs(cleaned) {
+		return fmt.Errorf("--root must be an absolute path, got: %q", root)
+	}
+	if cleaned == "/" {
+		return fmt.Errorf("--root must not be the filesystem root /")
+	}
+	for _, forbidden := range []string{"/proc", "/sys", "/dev", "/run"} {
+		if cleaned == forbidden || strings.HasPrefix(cleaned+"/", forbidden+"/") {
+			return fmt.Errorf("--root %q targets a forbidden pseudo-filesystem location", cleaned)
+		}
+	}
+	return nil
+}
 
 func colorScheme(ld lipgloss.LightDarkFunc) fang.ColorScheme {
 	return fang.ColorScheme{
@@ -109,19 +130,16 @@ func main() {
 		FatalTextColor:   color.New(color.BgRed, color.Bold, color.FgWhite),
 	})
 
-	// Flags for CLI commands
-	var force bool  // Force re-download or reinstall
-	var path string // Custom cache path
-	var root = "/home/elia/Desktop/ApertureOS/blink/var-blink"
+	var force bool
+	var path string
+	var root = DefaultRoot
 
-	//  Root command
 	rootCmd := &cobra.Command{
 		Use:   "blink",
 		Short: fmt.Sprintf("Blink - lightweight, source-based package manager for %s", DistroName),
 		Long:  fmt.Sprintf("Blink - lightweight, fast, source-based package manager for %s and Linux systems.", DistroName),
 	}
 
-	//  blink get <pkg>
 	getCmd := &cobra.Command{
 		Use:     "get <pkg>",
 		Short:   "Download a package recipe (JSON file)",
@@ -129,8 +147,11 @@ func main() {
 		Aliases: []string{"d", "download", "g", "dl"},
 		Run: func(cmd *cobra.Command, args []string) {
 
-			requireRoot() // ensure running as root
+			requireRoot()
 
+			if err := validateRoot(root); err != nil {
+				eyes.Fatalf("%v", err)
+			}
 			if err := ApplyRoot(root); err != nil {
 				eyes.Fatalf("Invalid root: %v", err)
 			}
@@ -148,6 +169,9 @@ func main() {
 			}
 
 			for _, pkgName := range args {
+				if err := validatePackageName(pkgName); err != nil {
+					eyes.Fatalf("%v", err)
+				}
 				if err := getpkg(pkgName, path); err != nil {
 					eyes.Errorf("Failed to fetch %s: %v", pkgName, err)
 					return
@@ -157,7 +181,6 @@ func main() {
 		},
 	}
 
-	//  blink search <pkg>
 	infoCmd := &cobra.Command{
 		Use:     "search <pkg>",
 		Short:   "Fetch & display package information",
@@ -165,8 +188,11 @@ func main() {
 		Aliases: []string{"information", "pkginfo", "details", "fetch", "info", "f", "searchfor"},
 		Run: func(cmd *cobra.Command, args []string) {
 
-			requireRoot() // ensure running as root
+			requireRoot()
 
+			if err := validateRoot(root); err != nil {
+				eyes.Fatalf("%v", err)
+			}
 			if err := ApplyRoot(root); err != nil {
 				eyes.Fatalf("Invalid root: %v", err)
 			}
@@ -184,6 +210,9 @@ func main() {
 			}
 
 			for _, pkgName := range args {
+				if err := validatePackageName(pkgName); err != nil {
+					eyes.Fatalf("%v", err)
+				}
 				if _, err := fetchpkg(path, force, pkgName, false); err != nil {
 					eyes.Errorf("Failed to fetch info for %s: %v", pkgName, err)
 					return
@@ -193,7 +222,6 @@ func main() {
 		},
 	}
 
-	//  blink install <pkg>
 	installCmd := &cobra.Command{
 		Use:     "install <pkg>",
 		Short:   "Download and install a package",
@@ -201,8 +229,11 @@ func main() {
 		Aliases: []string{"i", "add", "inst"},
 		Run: func(cmd *cobra.Command, args []string) {
 
-			requireRoot() // ensure running as root
+			requireRoot()
 
+			if err := validateRoot(root); err != nil {
+				eyes.Fatalf("%v", err)
+			}
 			if err := ApplyRoot(root); err != nil {
 				eyes.Fatalf("Invalid root: %v", err)
 			}
@@ -220,6 +251,9 @@ func main() {
 			}
 
 			for _, pkgName := range args {
+				if err := validatePackageName(pkgName); err != nil {
+					eyes.Fatalf("%v", err)
+				}
 				eyes.Infof("Processing package: %s", pkgName)
 
 				if err := install(pkgName, force, path); err != nil {
@@ -231,16 +265,18 @@ func main() {
 		},
 	}
 
-	//  blink uninstall <pkg>
 	uninstallCmd := &cobra.Command{
 		Use:     "uninstall <pkg>",
-		Short:   "Download and install a package",
+		Short:   "Uninstall a package",
 		Args:    cobra.ExactArgs(1),
 		Aliases: []string{"remove", "u", "uninst"},
 		Run: func(cmd *cobra.Command, args []string) {
 
-			requireRoot() // ensure running as root
+			requireRoot()
 
+			if err := validateRoot(root); err != nil {
+				eyes.Fatalf("%v", err)
+			}
 			if err := ApplyRoot(root); err != nil {
 				eyes.Fatalf("Invalid root: %v", err)
 			}
@@ -258,6 +294,9 @@ func main() {
 			}
 
 			for _, pkgName := range args {
+				if err := validatePackageName(pkgName); err != nil {
+					eyes.Fatalf("%v", err)
+				}
 				eyes.Infof("Processing package: %s", pkgName)
 
 				if err := uninstall(pkgName, force, path); err != nil {
@@ -269,7 +308,6 @@ func main() {
 		},
 	}
 
-	// Sync command for syncing the package repository
 	syncCmd := &cobra.Command{
 		Use:     "sync",
 		Short:   "Syncs the package repository to the latest version.",
@@ -277,8 +315,11 @@ func main() {
 		Aliases: []string{"s", "--sync", "repo", "reposync"},
 		Run: func(cmd *cobra.Command, args []string) {
 
-			requireRoot() // ensure running as root
+			requireRoot()
 
+			if err := validateRoot(root); err != nil {
+				eyes.Fatalf("%v", err)
+			}
 			if err := ApplyRoot(root); err != nil {
 				eyes.Fatalf("Invalid root: %v", err)
 			}
@@ -298,7 +339,6 @@ func main() {
 		},
 	}
 
-	// Update command for updating installed packages
 	updateCmd := &cobra.Command{
 		Use:     "update",
 		Short:   "Update installed packages",
@@ -306,6 +346,9 @@ func main() {
 		Run: func(cmd *cobra.Command, args []string) {
 			requireRoot()
 
+			if err := validateRoot(root); err != nil {
+				eyes.Fatalf("%v", err)
+			}
 			if err := ApplyRoot(root); err != nil {
 				eyes.Fatalf("Invalid root: %v", err)
 			}
@@ -328,7 +371,6 @@ func main() {
 		},
 	}
 
-	// Support command for displaying support information
 	supportCmd := &cobra.Command{
 		Use:     "support",
 		Aliases: []string{"issue", "bug", "contact", "discord", "--support", "--bug"},
@@ -338,23 +380,22 @@ func main() {
 		},
 	}
 
-	// Clean command for cleaning the data folders
-	// containing recipes, build directories, etc
 	cleanCmd := &cobra.Command{
 		Use:     "clean",
 		Aliases: []string{"cleanup", "clear", "c", "-c", "--clean", "--cleanup"},
 		Short:   "Clean cache info.",
 		Run: func(cmd *cobra.Command, args []string) {
 
-			requireRoot() // ensure running as root
+			requireRoot()
+
+			if err := validateRoot(root); err != nil {
+				eyes.Fatalf("%v", err)
+			}
 
 			clean()
 		},
 	}
 
-	// version command for displaying the current version
-	// of Blink. Not using fang for this one because its
-	// better like this.
 	versionCmd := &cobra.Command{
 		Use:     "version",
 		Aliases: []string{"v", "ver", "--version", "-v"},
@@ -364,11 +405,8 @@ func main() {
 		},
 	}
 
-	// Disable default Cobra completion
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 
-	// Command for generating shell completion scripts
-	// for bash, zsh, and fish
 	completionCmd := &cobra.Command{
 		Use:       "completion [bash|zsh|fish]",
 		Short:     "Generate shell completion scripts",
@@ -388,8 +426,6 @@ func main() {
 		},
 	}
 
-	// Add flags to commands
-
 	getCmd.Flags().BoolVarP(&force, "force", "f", false, "Force re-download")
 	getCmd.Flags().StringVarP(&path, "path", "p", "", "Specify recipes directory")
 	getCmd.Flags().StringVarP(&root, "root", "r", DefaultRoot, "Specify root directory")
@@ -408,17 +444,12 @@ func main() {
 	updateCmd.Flags().StringVarP(&root, "root", "r", DefaultRoot, "Specify root directory")
 	cleanCmd.Flags().StringVarP(&root, "root", "r", DefaultRoot, "Specify root directory")
 
-	// Add commands to cobra cli root command
 	rootCmd.AddCommand(getCmd, infoCmd, installCmd, supportCmd, versionCmd, cleanCmd, completionCmd, syncCmd, uninstallCmd, updateCmd)
 
-	// Print welcome message
 	fmt.Printf("Blink Package Manager Version: %s\n", CurrentBlinkVersion)
 	fmt.Printf("© Copyright 2025-%d Aperture OS. All rights reserved.\n", CurrentYear)
 
-	// Execute root command
 	if err := fang.Execute(context.Background(), rootCmd, fang.WithoutVersion(), fang.WithColorSchemeFunc(colorScheme)); err != nil {
 		eyes.Fatalf("Command Line Interface failed to run. (Is there any syntax error(s)?)\nERR: %v ", err)
 	}
 }
-
-// if ur reading this pls contribute to the package repository :sob:

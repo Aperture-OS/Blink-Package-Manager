@@ -22,57 +22,79 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 
 	"github.com/Aperture-OS/eyes"
 	"github.com/BurntSushi/toml"
 )
 
-// CreateDefaultConfig writes the default repository config to configPath
+const defaultConfigTOML = `[pseudoRepository]
+git_url = "https://github.com/Aperture-OS/testing-blink-repo.git"
+branch = "main"
+trustedKey = "/etc/blink/trusted.pub"
+`
+
+var validBranchName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9/_.-]{0,199}$`)
+
+func validateRepoEntry(name, rawURL, branch string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("repo %q has unparseable git_url: %v", name, err)
+	}
+	if u.Scheme != "https" {
+		return fmt.Errorf("repo %q: only https:// git URLs are permitted, got scheme %q", name, u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("repo %q: git_url must have a non-empty host", name)
+	}
+	if !validBranchName.MatchString(branch) {
+		return fmt.Errorf("repo %q: branch name %q contains disallowed characters", name, branch)
+	}
+	return nil
+}
+
+func writeConfigAtomic(path string) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0640)
+	if err != nil {
+		if os.IsExist(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to create config file: %v", err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(defaultConfigTOML); err != nil {
+		return fmt.Errorf("failed to write default config: %v", err)
+	}
+	return nil
+}
+
 func CreateDefaultConfig() error {
 	if ConfigFilePath == "" {
 		return fmt.Errorf("ConfigFilePath is empty")
 	}
-
-	dir := filepath.Dir(ConfigFilePath)
-	if err := os.MkdirAll(dir, 0750); err != nil { // tighter permissions
+	if err := os.MkdirAll(filepath.Dir(ConfigFilePath), 0750); err != nil {
 		return err
 	}
-
-	// Write the raw TOML directly
-	defaultConfig := `[pseudoRepository]
-git_url = "https://github.com/Aperture-OS/testing-blink-repo.git"
-branch = "main"
-`
-	if err := os.WriteFile(ConfigFilePath, []byte(defaultConfig), 0640); err != nil {
-		return fmt.Errorf("failed to write default config: %v", err)
+	if err := writeConfigAtomic(ConfigFilePath); err != nil {
+		return err
 	}
-
 	eyes.Infof("Default repository config created at %s", ConfigFilePath)
 	return nil
 }
 
 func EnsureConfig() error {
-	if _, err := os.Stat(ConfigFilePath); os.IsNotExist(err) {
-		eyes.Infof("Config file not found. Creating default at %s", ConfigFilePath)
-		if err := os.MkdirAll(filepath.Dir(ConfigFilePath), 0750); err != nil {
-			return fmt.Errorf("failed to create config dir: %v", err)
-		}
-
-		defaultConfig := `[pseudoRepository]
-git_url = "https://github.com/Aperture-OS/testing-blink-repo.git"
-branch = "main"
-trustedKey = "/key.pub"
-`
-		if err := os.WriteFile(ConfigFilePath, []byte(defaultConfig), 0640); err != nil {
-			return fmt.Errorf("failed to write default config: %v", err)
-		}
+	if err := os.MkdirAll(filepath.Dir(ConfigFilePath), 0750); err != nil {
+		return fmt.Errorf("failed to create config dir: %v", err)
+	}
+	if err := writeConfigAtomic(ConfigFilePath); err != nil {
+		return err
 	}
 	return nil
 }
 
-// LoadConfig loads the repository config from configPath
 func LoadConfig() (map[string]RepoConfig, error) {
 	if _, err := os.Stat(ConfigFilePath); os.IsNotExist(err) {
 		eyes.Infof("Config file not found. Creating default config at %s", ConfigFilePath)
@@ -90,11 +112,16 @@ func LoadConfig() (map[string]RepoConfig, error) {
 		return nil, fmt.Errorf("no repositories found in config")
 	}
 
+	for name, repo := range repos {
+		if err := validateRepoEntry(name, repo.URL, repo.Ref); err != nil {
+			return nil, err
+		}
+	}
+
 	eyes.Infof("Loaded %d repositories from %s", len(repos), ConfigFilePath)
 	return repos, nil
 }
 
-// LoadRepos reads repository definitions from a TOML file
 func LoadRepos(path string) (map[string]RepoConfig, error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil, fmt.Errorf("repo config does not exist: %s", path)
@@ -113,6 +140,9 @@ func LoadRepos(path string) (map[string]RepoConfig, error) {
 
 	repos := make(map[string]RepoConfig)
 	for name, r := range raw {
+		if err := validateRepoEntry(name, r.GitURL, r.Branch); err != nil {
+			return nil, err
+		}
 		repos[name] = RepoConfig{
 			Name:       name,
 			URL:        r.GitURL,

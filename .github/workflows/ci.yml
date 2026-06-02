@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Check gofmt
+        run: |
+          DIFF=$(gofmt -l .)
+          if [ -n "$DIFF" ]; then
+            echo "Files not formatted:"
+            echo "$DIFF"
+            exit 1
+          fi
+
+      - name: Check gofmt -s
+        run: |
+          DIFF=$(gofmt -s -l .)
+          if [ -n "$DIFF" ]; then
+            echo "Files need simplification:"
+            echo "$DIFF"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: staticcheck
+        uses: dominikh/staticcheck-action@v1
+        with:
+          version: latest
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout 5m
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+      - name: Run gosec
+        run: gosec ./...
+
+      - name: Run govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+  build:
+    name: Build (${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p build
+          go build -trimpath -ldflags="-s -w" -o build/blink-${{ matrix.goarch }} ./src/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: blink-linux-${{ matrix.goarch }}
+          path: build/blink-${{ matrix.goarch }}
+
+  test:
+    name: Test & Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run tests with coverage
+        run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./src/
+
+      - name: Display coverage
+        run: go tool cover -func=coverage.out
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.out

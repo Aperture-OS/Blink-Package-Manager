@@ -24,10 +24,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
-// Paths holds all the computed paths for a given root directory
 type Paths struct {
 	BaseDataDir  string
 	ConfigFile   string
@@ -39,7 +39,6 @@ type Paths struct {
 	BuildDir     string
 }
 
-// ComputePaths computes all paths based on a root directory
 func ComputePaths(osRoot string) Paths {
 	baseDataDir := filepath.Join(osRoot, "var", "blink")
 
@@ -55,28 +54,37 @@ func ComputePaths(osRoot string) Paths {
 	}
 }
 
-// ApplyRoot validates the provided root path, computes derived paths
-// and applies them to the global variables used across the program.
-// This avoids mutating globals in ad-hoc ways and centralizes path setup.
+var globalPathsMu sync.RWMutex
+
+func getPaths() Paths {
+	globalPathsMu.RLock()
+	defer globalPathsMu.RUnlock()
+	return Paths{
+		BaseDataDir:  BaseDataDirPath,
+		ConfigFile:   ConfigFilePath,
+		LockFile:     LockFilePath,
+		LocalRepoDir: LocalRepositoryDirPath,
+		SourceDir:    SourceDirPath,
+		RecipeDir:    RecipeDirPath,
+		ManifestFile: ManifestFilePath,
+		BuildDir:     BuildDirPath,
+	}
+}
+
 func ApplyRoot(osRoot string) error {
-	if osRoot == "" || osRoot == "\n" {
-		osRoot = "/"
+	if osRoot == "" {
+		return fmt.Errorf("root path must not be empty")
 	}
 
 	cleaned := filepath.Clean(osRoot)
 	if !filepath.IsAbs(cleaned) {
-		abs, err := filepath.Abs(cleaned)
-		if err != nil {
-			return fmt.Errorf("failed to resolve root path: %v", err)
-		}
-		cleaned = abs
+		return fmt.Errorf("root must be an absolute path, got: %q", osRoot)
 	}
 
-	paths := ComputePaths(cleaned) // <- just use cleaned root
+	paths := ComputePaths(cleaned)
 
-	// Create base + subdirs
 	subdirs := []string{
-		filepath.Dir(paths.ConfigFile), // etc
+		filepath.Dir(paths.ConfigFile),
 		paths.LocalRepoDir,
 		paths.RecipeDir,
 		paths.SourceDir,
@@ -88,7 +96,9 @@ func ApplyRoot(osRoot string) error {
 		}
 	}
 
-	// Apply globals
+	globalPathsMu.Lock()
+	defer globalPathsMu.Unlock()
+
 	BaseDataDirPath = paths.BaseDataDir
 	ConfigFilePath = paths.ConfigFile
 	LockFilePath = paths.LockFile
@@ -104,48 +114,36 @@ func ApplyRoot(osRoot string) error {
 }
 
 //===================================================================//
-//							     Globals
+//								 Globals
 //===================================================================//
-
-// !!! NEVER USE RELATIVE PATHS FOR GLOBALS !!!
-// ALWAYS USE ABSOLUTE PATHS TO AVOID ISSUES
-// EVEN WHEN TESTING LOCALLY, ALWAYS ABSOLUTE PATHS!
 
 var (
 	DistroName = "ApertureOS"
 
-	BaseDataDirPath     = "/home/elia/Desktop/ApertureOS/blink/var-blink" // Default: /var/blink/
-	CurrentYear         = time.Now().Year()                               // Current year for copyright
-	CurrentBlinkVersion = "v0.2.0-alpha"                                  // Blink version
+	BaseDataDirPath     = "/var/blink"
+	CurrentYear         = time.Now().Year()
+	CurrentBlinkVersion = "v0.2.0-alpha"
 
-	DefaultRepositoryList = `
-[pseudoRepository]
-git_url = "https://github.com/Aperture-OS/testing-blink-repo.git"
-branch = "main"
-`
-
-	DefaultRoot = "/home/elia/Desktop/ApertureOS/blink/root/" // Default root directory
+	DefaultRoot = "/"
 
 	ConfigFilePath         = filepath.Join(BaseDataDirPath, "etc", "config.toml")
-	LockFilePath           = filepath.Join(BaseDataDirPath, "etc", "blink.lock") // Path to lock file
+	LockFilePath           = filepath.Join(BaseDataDirPath, "etc", "blink.lock")
 	LocalRepositoryDirPath = filepath.Join(BaseDataDirPath, "repositories")
-	SourceDirPath          = filepath.Join(BaseDataDirPath, "sources") // Path to downloaded source
+	SourceDirPath          = filepath.Join(BaseDataDirPath, "sources")
 	RecipeDirPath          = filepath.Join(BaseDataDirPath, "recipes")
 	ManifestFilePath       = filepath.Join(BaseDataDirPath, "etc", "manifest.toml")
 	BuildDirPath           = filepath.Join(BaseDataDirPath, "build")
 
 	lock = &Lock{Path: LockFilePath}
 
-	SupportInformationSnippet = // Support information string
-	`Having trouble? Join our Discord Server or open a GitHub issue.
+	SupportInformationSnippet = `Having trouble? Join our Discord Server or open a GitHub issue.
 	Include any DEBUG INFO logs when reporting issues.
 	Discord: https://discord.com/invite/rx82u93hGD
 	GitHub Issues: https://github.com/Aperture-OS/blink-package-manager/issues`
 
-	VersionInformationSnippet = // version information string
-	fmt.Sprintf(`Blink Package Manager - Version %s 
-	Licensed under GPL v3.0 by Aperture OS
+	VersionInformationSnippet = fmt.Sprintf(`Blink Package Manager - Version %s
+	Licensed under Apache 2.0 by Aperture OS
 	https://aperture-os.github.io
 	All rights reserved. © Copyright 2025-%d Aperture OS.
 	`, CurrentBlinkVersion, CurrentYear)
-) // TODO: migrate to /var/blink
+)

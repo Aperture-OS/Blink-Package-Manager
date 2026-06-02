@@ -6,11 +6,11 @@
 Blink is a source-based package manager designed for performance and control. It serves as the core component of ApertureOS. Every package compiles directly from source code, enabling deep customization and optimization of your software environment.</p>
 </p>
 <p align="center">
-<img alt="Static Badge" src="https://img.shields.io/badge/Blink_Package_Manager-v0.1.0-6d7592?logo=github&labelColor=45455e&link=https%3A%2F%2Fgithub.com%2FAperture-OS%2Fblink-package-manager%2Freleases">
+<img alt="Static Badge" src="https://img.shields.io/badge/Blink_Package_Manager-v0.2.0-6d7592?logo=github&labelColor=45455e&link=https%3A%2F%2Fgithub.com%2FAperture-OS%2Fblink-package-manager%2Freleases">
 </p>
 
 > [!IMPORTANT]\
-> This version of Blink is a beta version (v0.1.0-beta), although it is usable, there may be some bugs.
+> This version of Blink is an alpha version (v0.2.0-alpha), although it is usable, there may be some bugs. ApertureOS is **NOT** responsible for any damage to your device.
 
 ## Features
 
@@ -20,6 +20,15 @@ Blink is a source-based package manager designed for performance and control. It
 - **Custom Repository Support:** Easily add and manage multiple repositories.
 - **Cross-Distro Ready:** Can be adapted for other Linux distributions with minimal effort.
 - **Extensible:** Modular design allows for easy plugin and feature extensions.
+
+## Documentation
+
+- [CLI Usage](docs/cli-usage.md) — Command reference with examples and exit codes
+- [Manifest Format](docs/manifest-format.md) — Package recipe and configuration TOML schemas
+- [Repository Workflow](docs/repository-workflow.md) — Creating and publishing package repositories
+- [Packaging Workflow](docs/packaging-workflow.md) — Build lifecycle, dependency resolution, and security checks
+- [Security Policy](SECURITY.md) — Vulnerability reporting and supported versions
+- [Changelog](CHANGELOG.md) — Release history
 
 ## Contribute
 
